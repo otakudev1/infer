@@ -15,7 +15,7 @@ on:
 jobs:
   android:
     name: Build Infer APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions: write-all
     steps:
       - name: Checkout
@@ -28,14 +28,33 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
-          cache: 'gradle'
 
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+          path: /opt/flutter
+          key: flutter-${{ env.FLUTTER_VERSION }}-linux-arm64-v1
+
+      - name: Install Flutter (arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # subosito/flutter-action resolves versions from releases_linux.json,
+          # which lists x64 archives only, so it fails on arm64 with
+          # "Unable to determine Flutter version ... architecture: arm64".
+          # The per-engine-hash arm64 artifacts do exist on the CDN, so clone
+          # the tagged SDK and let update_dart_sdk.sh pick arm64 via uname -m.
+          if [ ! -x /opt/flutter/bin/flutter ]; then
+            sudo git clone --depth 1 --branch "${{ env.FLUTTER_VERSION }}" \
+              https://github.com/flutter/flutter.git /opt/flutter
+            sudo chown -R "$(id -u):$(id -g)" /opt/flutter
+          fi
+          git config --global --add safe.directory /opt/flutter
+          echo "/opt/flutter/bin" >> "$GITHUB_PATH"
+          export PATH="/opt/flutter/bin:$PATH"
+          flutter --version
+          flutter config --no-analytics
+          dart --version
 
       - name: Inject fallback secret
         shell: bash
@@ -69,15 +88,12 @@ jobs:
         continue-on-error: true
 
       - name: Build APK
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --target-platform android-arm64
 
-      - name: Rename APKs
+      - name: Rename APK
         run: |
           cd build/app/outputs/flutter-apk
-          for file in app-*-release.apk; do
-            abi=$(echo "$file" | sed -E 's/app-(.*)-release\.apk/\1/')
-            mv "$file" "Infer_android_${VERSION}_${abi}.apk"
-          done
+          mv app-release.apk "Infer_android_${VERSION}_arm64-v8a.apk"
           ls -lh *.apk
 
       - name: Upload arm64-v8a
@@ -85,18 +101,4 @@ jobs:
         with:
           name: Infer-arm64-v8a
           path: build/app/outputs/flutter-apk/Infer_android_*_arm64-v8a.apk
-          if-no-files-found: warn
-
-      - name: Upload armeabi-v7a
-        uses: actions/upload-artifact@v4
-        with:
-          name: Infer-armeabi-v7a
-          path: build/app/outputs/flutter-apk/Infer_android_*_armeabi-v7a.apk
-          if-no-files-found: warn
-
-      - name: Upload universal (fallback)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Infer-all-apis
-          path: build/app/outputs/flutter-apk/Infer_android_*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
