@@ -100,18 +100,39 @@ jobs:
           echo "Building ${VERSION}_${SHORT_SHA}"
 
       - name: Write signing keystore
-        if: ${{ env.SIGN_KEYSTORE_BASE64 != '' }}
+        shell: bash
         env:
           SIGN_KEYSTORE_BASE64: ${{ secrets.SIGN_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+          # Guard on the secret directly; env.* is not populated yet when an
+          # `if:` on the same step is evaluated, so the old check was always
+          # false and every build shipped unsigned.
+          if [ -z "${SIGN_KEYSTORE_BASE64:-}" ]; then
+            echo "::error::SIGN_KEYSTORE_BASE64 is empty - refusing to build an unsigned APK"
+            exit 1
+          fi
+          mkdir -p android/app
           echo "$SIGN_KEYSTORE_BASE64" | base64 --decode > android/app/key.jks
-          echo "storeFile=key.jks" >> android/key.properties
-          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> android/key.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          # storeFile is resolved relative to android/app/, hence key.jks here.
+          # printf, not a heredoc: YAML indentation would leak into the
+          # properties file and an indented EOF never terminates.
+          {
+            printf 'storeFile=key.jks\n'
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > android/key.properties
+          echo "Keystore written: $(stat -c %s android/app/key.jks) bytes"
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        # Scope to lib/: dependencies/ holds path-vendored packages whose
+        # test/ folders import package:test, which isn't in dev_deps here,
+        # producing hundreds of false errors.
+        run: flutter analyze lib --no-fatal-infos --no-fatal-warnings
         continue-on-error: true
 
       - name: Build APK
@@ -122,6 +143,19 @@ jobs:
           cd build/app/outputs/flutter-apk
           mv app-release.apk "Infer_android_${VERSION}_arm64-v8a.apk"
           ls -lh *.apk
+
+      - name: Verify APK is signed
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=$(ls build/app/outputs/flutter-apk/Infer_android_*_arm64-v8a.apk)
+          echo "Checking $APK"
+          if ! unzip -l "$APK" | grep -qE 'META-INF/[^/]+\.(RSA|DSA|EC)$'; then
+            echo "::error::APK is UNSIGNED - Android will reject it"
+            exit 1
+          fi
+          unzip -l "$APK" | grep -E 'META-INF/[^/]+\.(RSA|DSA|EC)$'
+          echo "APK signature block present."
 
       - name: Upload arm64-v8a
         uses: actions/upload-artifact@v4
