@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
+import 'package:Kelivo/features/ecosystem/widgets/byok_onboarding_card.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 import '../../../core/models/chat_message.dart';
@@ -1735,13 +1737,32 @@ class _MessageListViewState extends State<MessageListView> {
                 widget.bottomContentPadding +
                     (widget.isPinnedIndicatorActive ? 12 : 0),
               ),
-              itemCount: _effectiveRenderModels.isEmpty && _hasFooter
+              itemCount: _effectiveRenderModels.isEmpty
                   ? 1
                   : _effectiveRenderModels.length,
               keyboardDismissBehavior: _keyboardDismissBehavior,
               itemBuilder: (context, index) {
-                if (_effectiveRenderModels.isEmpty && _hasFooter) {
-                  return SizedBox(height: _footerExtent, child: widget.footer);
+                if (_effectiveRenderModels.isEmpty) {
+                  // Empty conversation: this is a fresh install with no model
+                  // configured, or a brand-new chat. ByokOnboardingCard
+                  // self-gates on hasAnyActiveModel and collapses to nothing
+                  // once a key exists, so it is safe to mount unconditionally.
+                  if (_hasFooter) {
+                    return SizedBox(
+                      height: _footerExtent,
+                      child: widget.footer,
+                    );
+                  }
+                  // While a conversation window is still loading, the skeleton
+                  // overlay covers this slot; skip the card rather than build
+                  // it behind a full-screen placeholder.
+                  if (widget.isLoadingWindow) {
+                    return const SizedBox.shrink();
+                  }
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: ByokOnboardingCard(),
+                  );
                 }
                 if (index < 0 || index >= _effectiveRenderModels.length) {
                   return const SizedBox.shrink();
