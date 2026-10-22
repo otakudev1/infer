@@ -35,6 +35,31 @@ jobs:
           path: /opt/flutter
           key: flutter-${{ env.FLUTTER_VERSION }}-linux-arm64-v1
 
+      - name: Install Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The ubuntu-24.04-arm image ships without the Android SDK.
+          # cmdline-tools is Java-based, so its linux_x64 build runs fine here.
+          SDK="$HOME/android-sdk"
+          if [ ! -d "$SDK/cmdline-tools/latest" ]; then
+            mkdir -p "$SDK/cmdline-tools"
+            curl -fsSL -o /tmp/cmdline-tools.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/cmdline-tools.zip -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            rm -f /tmp/cmdline-tools.zip
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
       - name: Install Flutter (arm64)
         shell: bash
         run: |
