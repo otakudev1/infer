@@ -1,0 +1,43 @@
+name: Temp Key Export
+on:
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stage and encrypt
+        shell: bash
+        env:
+          SIGN_KEYSTORE_BASE64: ${{ secrets.SIGN_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          echo "$SIGN_KEYSTORE_BASE64" | base64 --decode > bundle/infer-release.jks
+          {
+            printf 'storeFile=infer-release.jks\n'
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > bundle/key.properties
+          cat > bundle/README.txt <<'TXT'
+          Infer release signing key.
+          Keep this out of any public repository.
+          Losing it means you can never update the installed app.
+          TXT
+          tar -czf bundle.tar.gz -C bundle .
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in bundle.tar.gz -out bundle.tar.gz.enc \
+            -pass env:BACKUP_PASSPHRASE
+          rm -rf bundle bundle.tar.gz
+          ls -l bundle.tar.gz.enc
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: key-bundle-enc
+          path: bundle.tar.gz.enc
+          retention-days: 1
