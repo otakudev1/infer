@@ -150,12 +150,12 @@ jobs:
           set -euo pipefail
           APK=$(ls build/app/outputs/flutter-apk/Infer_android_*_arm64-v8a.apk)
           echo "Checking $APK"
-          if ! unzip -l "$APK" | grep -qE 'META-INF/[^/]+\.(RSA|DSA|EC)$'; then
-            echo "::error::APK is UNSIGNED - Android will reject it"
-            exit 1
-          fi
-          unzip -l "$APK" | grep -E 'META-INF/[^/]+\.(RSA|DSA|EC)$'
-          echo "APK signature block present."
+          # minSdk >= 24 means AGP signs with APK Signature Scheme v2/v3 only,
+          # so no META-INF/*.RSA exists. Checking for those files produced a
+          # false "UNSIGNED" verdict. apksigner is authoritative.
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          echo "apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
 
       - name: Upload arm64-v8a
         uses: actions/upload-artifact@v4
