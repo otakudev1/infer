@@ -322,7 +322,7 @@ class InferCore {
   Future<List<String>> ensureAllRegistered({String? bearerToken}) async {
     final created = <String>[];
 
-    final weatherFusion = EcosystemMcpRegistrar(mcp);
+    final weatherFusion = EcosystemMcpRegistrar(mcp: mcp);
     final alreadyHadWeatherFusion = mcp.servers.any(
       (s) => s.name == EcosystemMcpRegistrar.serverName,
     );
